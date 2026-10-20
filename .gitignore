@@ -1,0 +1,25 @@
+# Secrets -- NEVER commit these
+.env
+google_tts_credentials.json
+client_secrets.json
+youtube_token.json
+
+# Generated outputs (too large for git)
+outputs/
+*.mp4
+*.mp3
+*.jpg
+*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# VS Code
+.vscode/
+
+# Music bank (commit manually if small)
+# music/    # Leave this commented -- commit your music files

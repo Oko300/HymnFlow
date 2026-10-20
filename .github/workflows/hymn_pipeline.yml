@@ -1,0 +1,72 @@
+name: HymnFlow Daily Pipeline
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 6:00 AM UTC = 7:00 AM WAT every day
+  workflow_dispatch:       # Manual trigger from GitHub anytime
+
+jobs:
+  build-hymn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30    # Kill if something hangs
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-liberation
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download Pixabay Music Tracks
+        env:
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          python scripts/download_music.py
+        continue-on-error: true   # Non-fatal if music download fails
+
+      - name: Run HymnFlow Master Pipeline
+        env:
+          GEMINI_API_KEYS:       ${{ secrets.GEMINI_API_KEYS }}
+          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:          ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:      ${{ secrets.TELEGRAM_CHAT_ID }}
+          PIXABAY_API_KEY:       ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
+          TTS_VOICE_NAME:        en-US-MichelleNeural
+          TTS_SPEAKING_RATE:     "+0%"
+          TTS_PITCH:             "-2Hz"
+          FLASK_SECRET_KEY:      ${{ secrets.FLASK_SECRET_KEY }}
+        run: |
+          python master_pipeline.py
+
+      - name: Notify on Failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          from bot.notifier import send_text_to_telegram
+          send_text_to_telegram('*HymnFlow*\n\nMorning pipeline failed. Check GitHub Actions for details.')
+          "

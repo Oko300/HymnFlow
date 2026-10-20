@@ -1,0 +1,40 @@
+# HymnFlow Dependencies
+# Install with: pip install -r requirements.txt
+
+# ── Core ─────────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+requests>=2.32.0
+
+# ── Gemini AI — NEW official SDK (google-generativeai is deprecated) ─────────
+google-genai>=1.0.0
+
+# ── Google Cloud TTS (voice) — pinned for protobuf compatibility ─────────────
+google-cloud-texttospeech==2.17.2
+protobuf==5.29.6
+
+# ── Telegram Bot ─────────────────────────────────────────────────────────────
+python-telegram-bot>=21.0
+
+# ── Video Generation ─────────────────────────────────────────────────────────
+moviepy>=2.0.0
+Pillow>=10.0.0
+numpy==1.26.4
+
+# ── Audio ────────────────────────────────────────────────────────────────────
+pydub>=0.25.1
+
+# ── YouTube Upload ───────────────────────────────────────────────────────────
+google-api-python-client>=2.100.0
+google-auth>=2.14.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.2.0
+
+# ── Supabase ─────────────────────────────────────────────────────────────────
+supabase>=2.0.0
+
+# ── Web Dashboard ────────────────────────────────────────────────────────────
+Flask>=3.0.0
+flask-cors>=4.0.0
+
+# ── Scheduler ────────────────────────────────────────────────────────────────
+APScheduler>=3.10.0
