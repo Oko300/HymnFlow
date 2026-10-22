@@ -44,14 +44,41 @@ H = VIDEO_HEIGHT   # 1080
 
 
 # ── Font loader ───────────────────────────────────────────────────────────────
+# System font fallbacks for GitHub Actions Ubuntu runner
+_SYSTEM_SERIF_FONTS = [
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+]
+_SYSTEM_SANS_FONTS = [
+    "/usr/share/fonts/truetype/open-sans/OpenSans-Italic.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/ubuntu/Ubuntu-RI.ttf",
+]
+
 def load_font(path: str, size: int) -> ImageFont.FreeTypeFont:
+    # 1. Try the requested path (custom font)
     if os.path.exists(path):
         try:
             return ImageFont.truetype(path, size)
         except Exception:
             pass
-    logger.warning(f"Font not found: {path} -- using default")
-    return ImageFont.load_default()
+    # 2. Try system fonts (Ubuntu GitHub Actions runner)
+    fallbacks = _SYSTEM_SERIF_FONTS if "Cinzel" in path or "Serif" in path else _SYSTEM_SANS_FONTS
+    for fb in fallbacks:
+        if os.path.exists(fb):
+            try:
+                return ImageFont.truetype(fb, size)
+            except Exception:
+                continue
+    # 3. Last resort: PIL default (tiny, but never crashes)
+    logger.warning(f"Font not found: {path} -- using PIL default")
+    try:
+        return ImageFont.load_default(size=size)
+    except Exception:
+        return ImageFont.load_default()
 
 
 # ── Text helpers ──────────────────────────────────────────────────────────────
@@ -208,7 +235,7 @@ def get_music_track() -> str | None:
 
 
 # ── Main video builder ────────────────────────────────────────────────────────
-def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None) -> dict:
+def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None, audio_path: str | None = None) -> dict:
     """
     Build the complete hymn video.
     bg_video_path: path to downloaded nature footage (or None for colour bg)
@@ -242,12 +269,12 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None) -> d
     logger.info(f"Building video: {len(lyric_lines)} lines, style={style}")
 
     # ── Fonts ──────────────────────────────────────────────────────────────────
-    lyric_font   = load_font(LYRIC_FONT,  54)
-    label_font   = load_font(LYRIC_FONT,  26)
-    verse_font   = load_font(VERSE_FONT,  24)
-    channel_font = load_font(VERSE_FONT,  20)
-    title_font   = load_font(LYRIC_FONT,  60)
-    sub_font     = load_font(VERSE_FONT,  30)
+    lyric_font   = load_font(LYRIC_FONT,  72)   # was 54 — bigger for readability
+    label_font   = load_font(LYRIC_FONT,  32)
+    verse_font   = load_font(VERSE_FONT,  28)
+    channel_font = load_font(VERSE_FONT,  24)
+    title_font   = load_font(LYRIC_FONT,  72)
+    sub_font     = load_font(VERSE_FONT,  36)
 
     # ── Timing ─────────────────────────────────────────────────────────────────
     INTRO_DUR     = 3.0
@@ -325,21 +352,30 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None) -> d
 
     final = concatenate_videoclips([title_composite, lyric_section, outro_composite])
 
-    # ── Music ─────────────────────────────────────────────────────────────────
-    music_path = get_music_track()
-    if music_path:
-        logger.info(f"Adding music: {os.path.basename(music_path)}")
-        music = AudioFileClip(music_path)
-        # Loop music if needed
-        if music.duration < final.duration:
-            loops = int(final.duration / music.duration) + 2
-            music = concatenate_audioclips([music] * loops)
-        music = music.subclipped(0, final.duration)
-        # Fade out last 3 seconds
-        music = music.audio_fadeout(3.0)
-        final = final.with_audio(music)
+    # ── Audio (TTS voice + music from audio engine, or fallback music-only) ───
+    if audio_path and os.path.exists(audio_path):
+        logger.info(f"Attaching audio: {os.path.basename(audio_path)}")
+        audio_clip = AudioFileClip(audio_path)
+        # If audio is longer than video, trim it
+        if audio_clip.duration > final.duration:
+            audio_clip = audio_clip.subclipped(0, final.duration)
+        # If audio is shorter, that's fine — remaining video plays silently
+        audio_clip = audio_clip.audio_fadeout(3.0)
+        final = final.with_audio(audio_clip)
+        logger.info(f"Audio attached ({audio_clip.duration:.1f}s)")
     else:
-        logger.warning("No music track found -- video will have no audio")
+        # Fallback: try a raw music track from /music folder
+        music_path = get_music_track()
+        if music_path:
+            logger.info(f"Fallback: adding music track {os.path.basename(music_path)}")
+            music = AudioFileClip(music_path)
+            if music.duration < final.duration:
+                loops = int(final.duration / music.duration) + 2
+                music = concatenate_audioclips([music] * loops)
+            music = music.subclipped(0, final.duration).audio_fadeout(3.0)
+            final = final.with_audio(music)
+        else:
+            logger.warning("No audio available -- video will be silent")
 
     # ── Render ────────────────────────────────────────────────────────────────
     video_path = os.path.join(OUTPUT_DIR, f"{hymn_id}.mp4")

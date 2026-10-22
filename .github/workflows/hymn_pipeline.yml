@@ -22,7 +22,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg fonts-liberation
+          sudo apt-get install -y ffmpeg fonts-liberation fonts-open-sans fonts-dejavu-core
 
       - name: Cache pip packages
         uses: actions/cache@v4
@@ -40,10 +40,15 @@ jobs:
       - name: Download Fonts
         run: |
           mkdir -p fonts
-          curl -sL "https://github.com/google/fonts/raw/main/ofl/cinzel/Cinzel-Regular.ttf" -o fonts/Cinzel-Regular.ttf
-          curl -sL "https://github.com/google/fonts/raw/main/ofl/lato/Lato-Italic.ttf" -o fonts/Lato-Italic.ttf
-          echo "Fonts downloaded:"
-          ls -lh fonts/
+          # Try to download custom fonts (best-effort — system fonts used as fallback)
+          curl -L --retry 2 --max-time 15 -o fonts/Cinzel-Regular.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Regular.ttf" || true
+          curl -L --retry 2 --max-time 15 -o fonts/Lato-Italic.ttf \
+            "https://github.com/google/fonts/raw/main/ofl/lato/Lato-Italic.ttf" || true
+          # Check what we have (system fonts already available via apt)
+          echo "Custom fonts:" && ls -lh fonts/ || true
+          echo "System fonts available:"
+          find /usr/share/fonts/truetype -name "*.ttf" 2>/dev/null | head -10
 
       - name: Download Pixabay Music Tracks
         env:

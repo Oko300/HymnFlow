@@ -11,24 +11,24 @@ from config import OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
-# Mood → nature search keywords
+# Mood → nature search keywords (all chosen for bright, green, visible scenes)
 THEME_TO_KEYWORDS = {
-    "Praise":           "sunrise golden light worship",
-    "Worship":          "mountain clouds heaven light",
-    "Lament":           "rain window reflection calm",
-    "Thanksgiving":     "harvest field sunlight nature",
-    "Intercession":     "ocean waves peaceful shore",
-    "New Beginnings":   "sunrise dawn new day",
-    "God's Love":       "sunset warm light sky",
-    "Redemption":       "waterfall flowing river light",
-    "Easter":           "spring flowers bloom sunrise",
-    "Christmas":        "snow winter peaceful night",
-    "Advent":           "candle light dark hope",
-    "Holy Spirit":      "wind moving trees light",
-    "God's Protection": "eagle soaring mountain sky",
-    "Spiritual Warfare":"storm clouds breaking light",
-    "Faithfulness":     "river flowing mountains peaceful",
-    "default":          "nature peaceful worship light",
+    "Praise":           "green forest sunlight trees",
+    "Worship":          "sunlight through trees forest",
+    "Lament":           "gentle river flowing green nature",
+    "Thanksgiving":     "golden wheat field harvest sunlight",
+    "Intercession":     "calm lake reflection trees green",
+    "New Beginnings":   "sunrise meadow flowers green",
+    "God's Love":       "blooming flowers garden sunlight",
+    "Redemption":       "waterfall forest green light",
+    "Easter":           "spring cherry blossom flowers",
+    "Christmas":        "snow pine trees winter sunlight",
+    "Advent":           "forest path morning light mist",
+    "Holy Spirit":      "wind moving grass field sunlight",
+    "God's Protection": "green valley mountains sunlight",
+    "Spiritual Warfare":"sunlight breaking clouds green",
+    "Faithfulness":     "flowing river green forest trees",
+    "default":          "green forest nature sunlight trees",
 }
 
 
@@ -80,7 +80,13 @@ def download_pixabay_video(keyword: str, hymn_id: str, api_key: str) -> str | No
                 video_data = requests.get(video_url, timeout=120)
                 with open(out_path, "wb") as f:
                     f.write(video_data.content)
-                logger.info(f"Background video saved: {out_path}")
+                # Validate: reject files smaller than 500 KB (corrupt/redirect pages)
+                size_kb = os.path.getsize(out_path) // 1024
+                if size_kb < 500:
+                    logger.warning(f"Downloaded file too small ({size_kb} KB) -- skipping, likely corrupt")
+                    os.remove(out_path)
+                    continue
+                logger.info(f"Background video saved: {out_path} ({size_kb:,} KB)")
                 return out_path
 
         logger.warning("Pixabay: no usable video URL in results")

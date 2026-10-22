@@ -65,11 +65,24 @@ def run():
         logger.warning(f"Background download failed (non-fatal): {e}")
         bg_path = None
 
+    # ── Step 2.5: Generate Audio (TTS voice + worship music) ─────────────────
+    logger.info("STEP 2.5: Generating audio (TTS voice + music)...")
+    audio_path = None
+    try:
+        from audio.audio_engine import build_audio
+        audio_result = build_audio(hymn, hymn_id)
+        audio_path   = audio_result.get("audio_path")
+        dur_s        = audio_result.get("duration_seconds", 0)
+        logger.info(f"Audio ready: {audio_path} ({dur_s:.1f}s)")
+    except Exception as e:
+        logger.warning(f"Audio generation failed (non-fatal) -- video will be silent: {e}")
+        audio_path = None
+
     # ── Step 3: Build Video ───────────────────────────────────────────────────
     logger.info("STEP 3: Building video...")
     try:
         from video.video_engine import build_video
-        result = build_video(hymn, hymn_id, bg_video_path=bg_path)
+        result = build_video(hymn, hymn_id, bg_video_path=bg_path, audio_path=audio_path)
         video_path     = result["video_path"]
         thumbnail_path = result["thumbnail_path"]
         duration       = result["duration"]
