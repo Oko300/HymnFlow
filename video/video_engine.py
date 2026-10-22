@@ -26,6 +26,7 @@ from moviepy import (
     CompositeVideoClip,
     ImageClip,
     concatenate_videoclips,
+    concatenate_audioclips,
     ColorClip,
 )
 
@@ -265,7 +266,6 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None) -> d
         # Loop if shorter than needed
         if bg_clip.duration < total_dur:
             loops = int(total_dur / bg_clip.duration) + 2
-            from moviepy import concatenate_videoclips
             bg_clip = concatenate_videoclips([bg_clip] * loops)
         bg_clip = bg_clip.subclipped(0, total_dur)
     else:
@@ -332,9 +332,7 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None) -> d
         music = AudioFileClip(music_path)
         # Loop music if needed
         if music.duration < final.duration:
-            from moviepy import AudioFileClip
             loops = int(final.duration / music.duration) + 2
-            from moviepy import concatenate_audioclips
             music = concatenate_audioclips([music] * loops)
         music = music.subclipped(0, final.duration)
         # Fade out last 3 seconds

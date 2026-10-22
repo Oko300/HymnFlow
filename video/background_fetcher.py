@@ -74,6 +74,7 @@ def download_pixabay_video(keyword: str, hymn_id: str, api_key: str) -> str | No
                 videos.get("small",  {}).get("url")
             )
             if video_url:
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
                 out_path = os.path.join(OUTPUT_DIR, f"{hymn_id}_bg.mp4")
                 logger.info(f"Downloading Pixabay video: {video_url[:60]}...")
                 video_data = requests.get(video_url, timeout=120)

@@ -37,6 +37,14 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Download Fonts
+        run: |
+          mkdir -p fonts
+          curl -sL "https://github.com/google/fonts/raw/main/ofl/cinzel/Cinzel-Regular.ttf" -o fonts/Cinzel-Regular.ttf
+          curl -sL "https://github.com/google/fonts/raw/main/ofl/lato/Lato-Italic.ttf" -o fonts/Lato-Italic.ttf
+          echo "Fonts downloaded:"
+          ls -lh fonts/
+
       - name: Download Pixabay Music Tracks
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
