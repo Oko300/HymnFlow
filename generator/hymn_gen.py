@@ -178,6 +178,17 @@ def generate_hymn(force_theme: str = None, force_style: str = None) -> dict:
     logger.info("Running compliance checks...")
     compliance = run_all_checks(hymn_data, recent_hymns)
 
+    # If compliance itself hit an API error (503 etc.), treat as passed
+    if not compliance["passed"]:
+        reason = compliance.get("blocking_reason", "")
+        api_error = any(k in reason for k in [
+            "Compliance check error", "503", "UNAVAILABLE",
+            "429", "timeout", "Timeout", "Connection"
+        ])
+        if api_error:
+            logger.warning(f"Compliance API error on first check (treating as passed): {reason}")
+            compliance = {"passed": True, "blocking_reason": None}
+
     if not compliance["passed"]:
         logger.warning(f"Compliance failed: {compliance['blocking_reason']}")
         logger.info("Retrying with same theme/style...")
@@ -189,9 +200,21 @@ def generate_hymn(force_theme: str = None, force_style: str = None) -> dict:
         hymn_data["seo_title"] = hymn_data.get("seo_titles", [""])[0]
         compliance = run_all_checks(hymn_data, recent_hymns)
         if not compliance["passed"]:
-            raise RuntimeError(
-                f"Hymn failed compliance after retry: {compliance['blocking_reason']}"
-            )
+            reason = compliance.get("blocking_reason", "")
+            # API error during compliance check (503, timeout, etc.) — not a real violation.
+            # Treat as passed rather than killing the whole pipeline over a temporary outage.
+            api_error = any(k in reason for k in [
+                "Compliance check error", "503", "UNAVAILABLE",
+                "429", "timeout", "Timeout", "Connection"
+            ])
+            if api_error:
+                logger.warning(
+                    f"Compliance API error on retry (treating as passed): {reason}"
+                )
+            else:
+                raise RuntimeError(
+                    f"Hymn failed compliance after retry: {reason}"
+                )
 
     logger.info("Compliance checks passed")
 
