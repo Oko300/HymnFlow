@@ -78,15 +78,35 @@ def download_pixabay_video(keyword: str, hymn_id: str, api_key: str) -> str | No
                 out_path = os.path.join(OUTPUT_DIR, f"{hymn_id}_bg.mp4")
                 logger.info(f"Downloading Pixabay video: {video_url[:60]}...")
                 video_data = requests.get(video_url, timeout=120)
-                with open(out_path, "wb") as f:
+                raw_path = out_path.replace("_bg.mp4", "_bg_raw.mp4")
+                with open(raw_path, "wb") as f:
                     f.write(video_data.content)
                 # Validate: reject files smaller than 500 KB (corrupt/redirect pages)
-                size_kb = os.path.getsize(out_path) // 1024
+                size_kb = os.path.getsize(raw_path) // 1024
                 if size_kb < 500:
                     logger.warning(f"Downloaded file too small ({size_kb} KB) -- skipping, likely corrupt")
-                    os.remove(out_path)
+                    os.remove(raw_path)
                     continue
-                logger.info(f"Background video saved: {out_path} ({size_kb:,} KB)")
+                # Re-encode to H.264/yuv420p so MoviePy renders correctly
+                # (Pixabay often uses H.265/HEVC which renders as black frames)
+                logger.info(f"Re-encoding to H.264 for MoviePy compatibility...")
+                import subprocess
+                result = subprocess.run([
+                    "ffmpeg", "-y",
+                    "-i", raw_path,
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "fast",
+                    "-crf", "23",
+                    "-an",          # no audio needed in background
+                    out_path
+                ], capture_output=True, text=True)
+                os.remove(raw_path)
+                if result.returncode != 0:
+                    logger.warning(f"Re-encode failed: {result.stderr[-200:]}")
+                    continue
+                final_kb = os.path.getsize(out_path) // 1024
+                logger.info(f"Background video ready: {out_path} ({final_kb:,} KB)")
                 return out_path
 
         logger.warning("Pixabay: no usable video URL in results")
