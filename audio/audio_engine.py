@@ -47,13 +47,16 @@ def get_random_instrumental() -> str | None:
     return os.path.join(MUSIC_DIR, chosen)
 
 
-def flatten_lyrics_ssml(lyrics_raw, voice_name: str) -> str:
+def flatten_lyrics_ssml(lyrics_raw) -> str:
     """
-    Build SSML markup for reverent hymn narration.
-    - Each lyric line followed by an 900ms pause (measured, like singing phrasing)
-    - Stanza labels read slowly then 400ms pause
-    - 1400ms pause between stanzas (like a breath between verses)
-    - Rate -20% (slower, more solemn)  Pitch -3Hz (slightly deeper)
+    Build INNER SSML content only — NO <speak>, <voice>, or <prosody> wrappers.
+
+    edge-tts wraps whatever text you give it inside:
+        <speak><voice name=...><prosody rate=... pitch=...>YOUR TEXT</prosody></voice></speak>
+
+    So we must only provide inner markup (<s> and <break> tags).
+    Passing a full <speak> block causes double-wrapping and every XML tag
+    gets read out loud as plain text — the bug this function fixes.
     """
     if isinstance(lyrics_raw, str):
         try:
@@ -61,44 +64,29 @@ def flatten_lyrics_ssml(lyrics_raw, voice_name: str) -> str:
         except Exception:
             lyrics_raw = []
 
-    body_parts = []
+    parts = []
     for stanza in lyrics_raw:
         label = stanza.get("label", "")
         lines = stanza.get("lines", [])
 
         if label:
-            safe_label = label.replace("&", "and").replace("<", "").replace(">", "")
-            body_parts.append(
-                f'<s><prosody rate="-30%">{safe_label}</prosody></s>'
-                f'<break time="400ms"/>'
-            )
+            safe_label = (label.replace("&", "and")
+                               .replace("<", "").replace(">", "").strip())
+            # Brief pause after label announcement
+            parts.append(f'<s>{safe_label}</s><break time="500ms"/>')
 
         for line in lines:
             if line.strip():
                 safe_line = (line.strip()
-                             .replace("&", "and")
-                             .replace("<", "").replace(">", ""))
-                body_parts.append(
-                    f'<s>{safe_line}</s><break time="900ms"/>'
-                )
+                                 .replace("&", "and")
+                                 .replace("<", "").replace(">", ""))
+                # 900ms pause after every lyric line — measured, reverent phrasing
+                parts.append(f'<s>{safe_line}</s><break time="900ms"/>')
 
-        # Longer pause between stanzas
-        body_parts.append('<break time="1400ms"/>')
+        # Longer breath between stanzas
+        parts.append('<break time="1400ms"/>')
 
-    body = "\n".join(body_parts)
-
-    ssml = (
-        '<speak version="1.0" '
-        'xmlns="http://www.w3.org/2001/10/synthesis" '
-        'xml:lang="en-US">\n'
-        f'<voice name="{voice_name}">\n'
-        '<prosody rate="-20%" pitch="-3Hz">\n'
-        f'{body}\n'
-        '</prosody>\n'
-        '</voice>\n'
-        '</speak>'
-    )
-    return ssml
+    return "\n".join(parts)
 
 
 def flatten_lyrics(lyrics_raw) -> str:
@@ -117,23 +105,25 @@ def flatten_lyrics(lyrics_raw) -> str:
 
 # ── Core TTS ──────────────────────────────────────────────────────────────────
 
-async def _generate_voice_async(ssml: str, output_path: str):
-    """Async core: call edge-tts with SSML and save to file."""
-    # When passing SSML (<speak>...</speak>), rate/pitch go inside the SSML
-    # so we pass them as empty strings here to avoid double-applying them
+async def _generate_voice_async(text: str, voice: str, output_path: str):
+    """
+    Async core: call edge-tts and save to file.
+    text may contain inner SSML (<s>, <break>) — edge-tts wraps it
+    in <speak><voice><prosody> automatically, so never pass a full <speak> block.
+    """
     communicate = edge_tts.Communicate(
-        text=ssml,
-        voice=TTS_VOICE_NAME,
-        rate="+0%",    # prosody already in SSML
-        pitch="+0Hz",  # prosody already in SSML
+        text=text,
+        voice=voice,
+        rate="-20%",    # slower, more solemn — applied via edge-tts <prosody>
+        pitch="-3Hz",   # slightly deeper — applied via edge-tts <prosody>
     )
     await communicate.save(output_path)
     logger.info(f"Voice audio saved: {output_path}")
 
 
-def generate_voice(text: str, output_path: str):
+def generate_voice(text: str, voice: str, output_path: str):
     """Sync wrapper around the async edge-tts call."""
-    asyncio.run(_generate_voice_async(text, output_path))
+    asyncio.run(_generate_voice_async(text, voice, output_path))
 
 
 # ── Audio Mixing ──────────────────────────────────────────────────────────────
@@ -211,27 +201,24 @@ def build_audio(hymn: dict, hymn_id: str) -> dict:
     voice_path  = os.path.join(OUTPUT_DIR, f"{hymn_id}_voice.mp3")
     mixed_path  = os.path.join(OUTPUT_DIR, f"{hymn_id}_audio.mp3")
 
-    # Step 1 -- Build SSML from lyrics (proper pauses between lines)
-    lyrics_raw = hymn.get("lyrics", [])
-
-    # Use a warm, deep male voice — sounds more reverent for hymns
-    # Override the config voice with something better suited for worship narration
-    worship_voice = "en-US-GuyNeural"   # warm male, natural narration
+    # Step 1 -- Build inner SSML content (only <s> and <break> tags)
+    lyrics_raw    = hymn.get("lyrics", [])
+    worship_voice = "en-US-GuyNeural"   # warm male, natural — best for reverent narration
 
     try:
-        ssml = flatten_lyrics_ssml(lyrics_raw, voice_name=worship_voice)
+        inner_ssml = flatten_lyrics_ssml(lyrics_raw)
     except Exception as e:
         logger.warning(f"SSML build failed ({e}), falling back to plain text")
-        ssml = flatten_lyrics(lyrics_raw)
+        inner_ssml = flatten_lyrics(lyrics_raw)
 
-    if not ssml.strip():
+    if not inner_ssml.strip():
         raise ValueError(f"Hymn {hymn_id} has no lyrics to speak.")
 
-    logger.info(f"SSML length: {len(ssml)} chars")
+    logger.info(f"Inner SSML content length: {len(inner_ssml)} chars")
 
-    # Step 2 -- Generate voice
-    logger.info(f"Generating voice with {worship_voice} (SSML, -20% rate)...")
-    generate_voice(ssml, voice_path)
+    # Step 2 -- Generate voice (edge-tts wraps inner_ssml in <speak><voice><prosody>)
+    logger.info(f"Generating voice: {worship_voice} | rate=-20% | pitch=-3Hz")
+    generate_voice(inner_ssml, worship_voice, voice_path)
 
     # Step 3 -- Pick instrumental
     instrumental_path = get_random_instrumental()
