@@ -359,8 +359,12 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None, audi
         # If audio is longer than video, trim it
         if audio_clip.duration > final.duration:
             audio_clip = audio_clip.subclipped(0, final.duration)
-        # If audio is shorter, that's fine — remaining video plays silently
-        audio_clip = audio_clip.audio_fadeout(3.0)
+        # Fade out last 3 seconds (MoviePy 2.x renamed the method)
+        try:
+            from moviepy.audio.fx import AudioFadeOut
+            audio_clip = audio_clip.with_effects([AudioFadeOut(3.0)])
+        except Exception:
+            pass  # Fadeout is cosmetic — skip if API unavailable
         final = final.with_audio(audio_clip)
         logger.info(f"Audio attached ({audio_clip.duration:.1f}s)")
     else:
@@ -372,7 +376,12 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None, audi
             if music.duration < final.duration:
                 loops = int(final.duration / music.duration) + 2
                 music = concatenate_audioclips([music] * loops)
-            music = music.subclipped(0, final.duration).audio_fadeout(3.0)
+            music = music.subclipped(0, final.duration)
+            try:
+                from moviepy.audio.fx import AudioFadeOut
+                music = music.with_effects([AudioFadeOut(3.0)])
+            except Exception:
+                pass
             final = final.with_audio(music)
         else:
             logger.warning("No audio available -- video will be silent")
