@@ -47,40 +47,85 @@ def get_random_instrumental() -> str | None:
     return os.path.join(MUSIC_DIR, chosen)
 
 
-def flatten_lyrics(lyrics_raw) -> str:
+def flatten_lyrics_ssml(lyrics_raw, voice_name: str) -> str:
     """
-    Convert lyrics JSON (list of stanzas) into a single readable text
-    that edge-tts will speak naturally with pauses between stanzas.
+    Build SSML markup for reverent hymn narration.
+    - Each lyric line followed by an 900ms pause (measured, like singing phrasing)
+    - Stanza labels read slowly then 400ms pause
+    - 1400ms pause between stanzas (like a breath between verses)
+    - Rate -20% (slower, more solemn)  Pitch -3Hz (slightly deeper)
     """
     if isinstance(lyrics_raw, str):
         try:
             lyrics_raw = json.loads(lyrics_raw)
         except Exception:
-            return lyrics_raw  # Already a plain string
+            lyrics_raw = []
 
-    parts = []
+    body_parts = []
     for stanza in lyrics_raw:
         label = stanza.get("label", "")
         lines = stanza.get("lines", [])
 
-        # Add stanza label as a soft spoken cue (or skip for cleaner audio)
-        # We skip the label — just speak the lines with natural pauses
-        stanza_text = ". ".join(lines)  # Period = natural pause between lines
-        parts.append(stanza_text)
+        if label:
+            safe_label = label.replace("&", "and").replace("<", "").replace(">", "")
+            body_parts.append(
+                f'<s><prosody rate="-30%">{safe_label}</prosody></s>'
+                f'<break time="400ms"/>'
+            )
 
-    # Two newlines between stanzas = longer pause in edge-tts
+        for line in lines:
+            if line.strip():
+                safe_line = (line.strip()
+                             .replace("&", "and")
+                             .replace("<", "").replace(">", ""))
+                body_parts.append(
+                    f'<s>{safe_line}</s><break time="900ms"/>'
+                )
+
+        # Longer pause between stanzas
+        body_parts.append('<break time="1400ms"/>')
+
+    body = "\n".join(body_parts)
+
+    ssml = (
+        '<speak version="1.0" '
+        'xmlns="http://www.w3.org/2001/10/synthesis" '
+        'xml:lang="en-US">\n'
+        f'<voice name="{voice_name}">\n'
+        '<prosody rate="-20%" pitch="-3Hz">\n'
+        f'{body}\n'
+        '</prosody>\n'
+        '</voice>\n'
+        '</speak>'
+    )
+    return ssml
+
+
+def flatten_lyrics(lyrics_raw) -> str:
+    """Plain-text fallback (used only if SSML fails)."""
+    if isinstance(lyrics_raw, str):
+        try:
+            lyrics_raw = json.loads(lyrics_raw)
+        except Exception:
+            return lyrics_raw
+    parts = []
+    for stanza in lyrics_raw:
+        lines = stanza.get("lines", [])
+        parts.append(". ".join(lines))
     return "\n\n".join(parts)
 
 
 # ── Core TTS ──────────────────────────────────────────────────────────────────
 
-async def _generate_voice_async(text: str, output_path: str):
-    """Async core: call edge-tts and save to file."""
+async def _generate_voice_async(ssml: str, output_path: str):
+    """Async core: call edge-tts with SSML and save to file."""
+    # When passing SSML (<speak>...</speak>), rate/pitch go inside the SSML
+    # so we pass them as empty strings here to avoid double-applying them
     communicate = edge_tts.Communicate(
-        text=text,
+        text=ssml,
         voice=TTS_VOICE_NAME,
-        rate=TTS_SPEAKING_RATE,
-        pitch=TTS_PITCH,
+        rate="+0%",    # prosody already in SSML
+        pitch="+0Hz",  # prosody already in SSML
     )
     await communicate.save(output_path)
     logger.info(f"Voice audio saved: {output_path}")
@@ -166,18 +211,27 @@ def build_audio(hymn: dict, hymn_id: str) -> dict:
     voice_path  = os.path.join(OUTPUT_DIR, f"{hymn_id}_voice.mp3")
     mixed_path  = os.path.join(OUTPUT_DIR, f"{hymn_id}_audio.mp3")
 
-    # Step 1 -- Flatten lyrics
+    # Step 1 -- Build SSML from lyrics (proper pauses between lines)
     lyrics_raw = hymn.get("lyrics", [])
-    lyrics_text = flatten_lyrics(lyrics_raw)
 
-    if not lyrics_text.strip():
+    # Use a warm, deep male voice — sounds more reverent for hymns
+    # Override the config voice with something better suited for worship narration
+    worship_voice = "en-US-GuyNeural"   # warm male, natural narration
+
+    try:
+        ssml = flatten_lyrics_ssml(lyrics_raw, voice_name=worship_voice)
+    except Exception as e:
+        logger.warning(f"SSML build failed ({e}), falling back to plain text")
+        ssml = flatten_lyrics(lyrics_raw)
+
+    if not ssml.strip():
         raise ValueError(f"Hymn {hymn_id} has no lyrics to speak.")
 
-    logger.info(f"Lyrics text length: {len(lyrics_text)} chars")
+    logger.info(f"SSML length: {len(ssml)} chars")
 
     # Step 2 -- Generate voice
-    logger.info(f"Generating voice with {TTS_VOICE_NAME}...")
-    generate_voice(lyrics_text, voice_path)
+    logger.info(f"Generating voice with {worship_voice} (SSML, -20% rate)...")
+    generate_voice(ssml, voice_path)
 
     # Step 3 -- Pick instrumental
     instrumental_path = get_random_instrumental()

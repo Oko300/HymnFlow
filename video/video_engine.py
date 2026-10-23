@@ -277,12 +277,34 @@ def build_video(hymn: dict, hymn_id: str, bg_video_path: str | None = None, audi
     sub_font     = load_font(VERSE_FONT,  36)
 
     # ── Timing ─────────────────────────────────────────────────────────────────
-    INTRO_DUR     = 3.0
-    OUTRO_DUR     = 4.0
-    SECS_PER_LINE = 4.5          # Each lyric line shows for 4.5 seconds
-    FADE          = 0.4
-    lyric_dur     = len(lyric_lines) * SECS_PER_LINE
-    total_dur     = INTRO_DUR + lyric_dur + OUTRO_DUR
+    INTRO_DUR = 3.0
+    OUTRO_DUR = 4.0
+    FADE      = 0.4
+
+    # If audio is provided, sync video timing to audio duration
+    # so lyrics display in lockstep with the voice reading them
+    if audio_path and os.path.exists(audio_path):
+        try:
+            _tmp = AudioFileClip(audio_path)
+            audio_dur = _tmp.duration
+            _tmp.close()
+            # Distribute audio time: INTRO gets 3s, OUTRO gets 4s, lyrics get the rest
+            lyric_dur     = max(4.0, audio_dur - INTRO_DUR - OUTRO_DUR)
+            SECS_PER_LINE = lyric_dur / max(len(lyric_lines), 1)
+            total_dur     = audio_dur   # video length = audio length
+            logger.info(
+                f"Timing synced to audio: {audio_dur:.1f}s total, "
+                f"{SECS_PER_LINE:.2f}s per line"
+            )
+        except Exception as e:
+            logger.warning(f"Could not read audio duration ({e}) -- using default timing")
+            SECS_PER_LINE = 4.5
+            lyric_dur     = len(lyric_lines) * SECS_PER_LINE
+            total_dur     = INTRO_DUR + lyric_dur + OUTRO_DUR
+    else:
+        SECS_PER_LINE = 4.5
+        lyric_dur     = len(lyric_lines) * SECS_PER_LINE
+        total_dur     = INTRO_DUR + lyric_dur + OUTRO_DUR
 
     logger.info(f"Total duration: {total_dur:.1f}s ({total_dur/60:.1f} min)")
 
